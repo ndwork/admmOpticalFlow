@@ -5,8 +5,8 @@ function [du,dv] = opticalFlow3D( data1, data2 )
   %eta = 1d-2;
   eta = 1d-4;
 
-  pyramid1 = makeDataPyramid3( data1 );
-  pyramid2 = makeDataPyramid3( data2 );
+  pyramid1 = makeDataPyramid3( data1, 3 );
+  pyramid2 = makeDataPyramid3( data2, 3 );
 
   sLevel1 = size( pyramid1{end} );
   du = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
@@ -24,9 +24,9 @@ function [du,dv] = opticalFlow3D( data1, data2 )
     dw = medfilt3( dw, [5 5 5], 'symmetric' );
 
     scale = nRows / size(du,1);
-    du = imresize(du, [nRows nCols nPages], 'bilinear') * scale;
-    dv = imresize(dv, [nRows nCols nPages], 'bilinear') * scale;
-    dw = imresize(dw, [nRows nCols nPages], 'bilinear') * scale;
+    du = resize(du, [nRows nCols nPages], 'bilinear') * scale;
+    dv = resize(dv, [nRows nCols nPages], 'bilinear') * scale;
+    dw = resize(dw, [nRows nCols nPages], 'bilinear') * scale;
 
     tmp2 = ofInterp3D( pyramid2{level}, du, dv, dw );
 
@@ -59,6 +59,10 @@ end
 
 
 function [du,dv,dw] = ofADMM3D( data1, data2, eta )
+  
+  % data1 and data2 must be of type double
+  data1 = double( data1 );
+  data2 = double( data2 );
 
   % ADMM Parameters
   rho = 1.0;
@@ -70,7 +74,7 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   [Iu2, Iv2, Iw2] = imgDeriv3D( data2 );
   Iu = ( Iu1 + Iu2 ) / 2;
   Iv = ( Iv1 + Iv2 ) / 2;
-  Iv = ( Iw1 + Iw2 ) / 2;
+  Iw = ( Iw1 + Iw2 ) / 2;
   It = data2 - data1;
 
   D1 = sparse(nPix,nPix);
@@ -134,6 +138,9 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   z2_1 = zeros( nPix, 1 );
   z2_2 = zeros( nPix, 1 );
   z2_3 = zeros( nPix, 1 );
+  z3_1 = zeros( nPix, 1 );
+  z3_2 = zeros( nPix, 1 );
+  z3_3 = zeros( nPix, 1 );
 
   lambda1_1 = zeros( nPix, 1 );
   lambda1_2 = zeros( nPix, 1 );
@@ -174,6 +181,9 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   nIter = 1000;
   %objectives = zeros(nIter,1);
   for i=1:nIter
+    if mod(i,50)==0
+      disp([ 'Working on iteration ', num2str(i), ' of ', num2str(nIter) ]);
+    end
 
     %objectives(i) = ofObjective( Au, Av, b, x1, x2, eta, D1, D2 );
 
@@ -196,10 +206,10 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
     % Update y
     nu1 = Au.*b + lambda1_1 + rho*x1;
     nu2 = Av.*b + lambda1_2 + rho*x2;
-    mu3 = Aw.*b + lambda1_3 + rho*x3;
+    nu3 = Aw.*b + lambda1_3 + rho*x3;
     y3 = (nu3 - K.*x2 - C.*x1 ) ./ ...
       (K.*M21./M11.*M13 - K.*M23 - M31./M11.*M13 + M33 );
-    y2 = ( nu2 - M21./M11.*nu1 + M21./M11.*M13./nu3 - M23.*nu3 ) ./ ...
+    y2 = ( nu2 - M21./M11.*nu1 + M21./M11.*M13.*nu3 - M23.*nu3 ) ./ ...
       (M22 - M21./M11.*M12);
     y1 = ( nu1 - M12.*y2 - M13.*y3 ) ./ M11;
 
@@ -230,11 +240,12 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
 
   end
 
-  du = reshape( x1, [nRows nCols] );
-  dv = reshape( x2, [nRows nCols] );
-  dw = reshape( x3, [nRows nCols] );
+  du = reshape( x1, [nRows nCols nPages] );
+  dv = reshape( x2, [nRows nCols nPages] );
+  dw = reshape( x3, [nRows nCols nPages] );
 
   % for diagnostics
+save( 'state.mat' );
   showDiagnostics = 0;
   if showDiagnostics==1
     close all;
@@ -262,8 +273,8 @@ function [dx, dy, dz] = imgDeriv3D( data )
   %dy(1:nRows-1,:) = img1(2:nRows,:) - img1(1:nRows-1,:);
   
   dx(:,2:N-1,:) = ( data(:,3:N,:) - data(:,1:N-2,:) ) / 2;
-  dx(:,:,1) = data(:,2,:) - data(:,1,:);
-  dx(:,:,N) = data(:,N,:) - data(:,N-1,:);
+  dx(:,1,:) = data(:,2,:) - data(:,1,:);
+  dx(:,N,:) = data(:,N,:) - data(:,N-1,:);
   
   dy(2:M-1,:,:) = ( data(3:M,:,:) - data(1:M-2,:,:) ) / 2;
   dy(1,:,:) = data(2,:,:) - data(1,:,:);
@@ -294,7 +305,7 @@ function out = ofObjective( Iu, Iv, b, du, dv, eta, D1, D2 )
 end
 
 
-function makeDataPyramid3( data, nLevels, spacing )
+function pyramid = makeDataPyramid3( data, nLevels, spacing )
   if nargin < 2
     nLevels = 4;
   end
@@ -310,17 +321,20 @@ function makeDataPyramid3( data, nLevels, spacing )
   tmp = data;
   for m = 1:nLevels
     pyramid{m} = tmp;
+    sTmp = size( tmp );
+    newSize = floor( sTmp .* ratio );
     tmp = imfilter(tmp, f, 'corr', 'symmetric', 'same');  % Gauss filter
-    tmp = imresize(tmp, ratio, 'bilinear');  % Downsampling
+    tmp = resize(tmp, newSize, 'bilinear');  % Downsampling
   end
 end
 
 
 function h = gaussFilt3( sig, hsize )
   siz   = (hsize-1)/2;
+  if ndims(siz) ~= 3 siz = ones(1,3)*siz; end;
+  if ndims(sig) ~= 3 sig = ones(1,3)*sig; end;
   [x,y,z] = ndgrid(-siz(1):siz(1),-siz(2):siz(2),-siz(3):siz(3));
   h = exp(-(x.*x/2/sig(1)^2 + y.*y/2/sig(2)^2 + z.*z/2/sig(3)^2));
   h = h/sum(h(:));
 end
-
 

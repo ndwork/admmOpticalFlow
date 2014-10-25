@@ -1,8 +1,20 @@
 
 function runOpticalFlow3D
+  clear; close all;
 
-  %data1 = 
-  %data2 = 
+  %load '../esp3dn25148.mat';
+  % The max dimensions of x are (128,128,64,508);
+
+  %data1 = abs( x( :, :, :, 250 ) );
+  %data2 = abs( x( :, :, :, 251 ) );
+load 'junk.mat';
+
+  img1 = data1(:,:,32);
+  %figure;  imshow( imresize( abs(img1), 5 ), [] );
+  %title('Data 1');
+  img2 = data2(:,:,32);
+  %figure;  imshow( imresize( abs(img2), 5 ), [] );
+  %title('Data 2');
 
   
   tic;
@@ -12,6 +24,8 @@ function runOpticalFlow3D
   timeTaken = toc;
   profile viewer
 
+save( 'ofResults.mat' );
+  
   interped = ofInterp3D( data2, du, dv, dw );
   close all;
   figure, imshow( data1, [] );
