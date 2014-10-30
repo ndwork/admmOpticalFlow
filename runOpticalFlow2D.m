@@ -7,8 +7,8 @@ function runOpticalFlow2D
   %img2 = double( imread( '../data/basketball/frame14.png' ) ) / 255;
   %img1 = double( imread( '../data/Yosemite/frame10.png' ) ) / 255;
   %img2 = double( imread( '../data/Yosemite/frame11.png' ) ) / 255;
-  img1 = double( imread( '../data/Dumptruck/frame10.png' ) ) / 255;
-  img2 = double( imread( '../data/Dumptruck/frame11.png' ) ) / 255;
+  img1 = double( imread( '../Dumptruck/frame10.png' ) ) / 255;
+  img2 = double( imread( '../Dumptruck/frame11.png' ) ) / 255;
 
   tic;
   profile on

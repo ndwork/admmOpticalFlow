@@ -1,5 +1,5 @@
 
-function [du,dv] = opticalFlow3D( data1, data2 )
+function [du,dv,dw] = opticalFlow3D( data1, data2 )
 
   % optical flow parameters
   %eta = 1d-2;
@@ -16,7 +16,7 @@ function [du,dv] = opticalFlow3D( data1, data2 )
   for level=numel(pyramid1):-1:1
     disp(['Working on pyramid level ', num2str(level)]);
     tmp1 = pyramid1{level};
-    [nRows nCols nPages] = size( pyramid1{level} );
+    [nRows, nCols, nPages] = size( pyramid1{level} );
 
     % Apply a median filter
     du = medfilt3( du, [5 5 5], 'symmetric' );
@@ -53,6 +53,8 @@ function [du,dv] = opticalFlow3D( data1, data2 )
     %  drawnow;
     %end
 
+    save( 'tmpState.mat' );
+    
   end
 
 end
@@ -64,6 +66,11 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   data1 = double( data1 );
   data2 = double( data2 );
 
+  % Check to make sure values of data1 and data2 are in a reasonable range
+  if( max(data1(:)) > 1.5 || max(data2(:)) > 1.5 )
+    error('Input values should be less than ~1');
+  end
+  
   % ADMM Parameters
   rho = 1.0;
 
@@ -77,43 +84,11 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   Iw = ( Iw1 + Iw2 ) / 2;
   It = data2 - data1;
 
-  D1 = sparse(nPix,nPix);
-  for k = 1:nPages
-    for j = 1:(nCols-1)
-      for i = 1:nRows
-        ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
-        ijp1kIdx = (k-1)*nRows*nPages + (j+1-1)*nRows + i;
-        D1(ijkIdx,ijkIdx) = -1;
-        D1(ijkIdx,ijp1kIdx) = 1;
-      end
-    end
-  end
+  D1 = makeD1( nCols, nRows, nPages );
+  D2 = makeD2( nCols, nRows, nPages );
+  D3 = makeD3( nCols, nRows, nPages );
 
-  D2 = sparse(nPix,nPix);
-  for k = 1:nPages
-    for j = 1:nCols
-      for i = 1:(nRows - 1)
-        ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
-        ip1jkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i + 1;
-        D2(ijkIdx,ijkIdx) = -1;
-        D2(ijkIdx,ip1jkIdx) = 1;
-      end
-    end
-  end
-  
-  D3 = sparse(nPix,nPix);
-  for k = 1:(nPages-1)
-    for j = 1:nCols
-      for i = 1:(nRows-1)
-        ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
-        ijkp1Idx = (k-1+1)*nRows*nPages + (j-1)*nRows + i;
-        D3(ijkIdx,ijkIdx) = -1;
-        D3(ijkIdx,ijkp1Idx) = 1;
-      end
-    end
-  end
-
-  B = speye(nPix) + D1'*D1 + D2'*D2 + D3'*D3;
+  B = D1'*D1 + D2'*D2 + D3'*D3 + speye(nPix);
 
   % Store an LU decomposition of M for faster solving later
   % NOTE: PMQ = LU, and Py = y(p); Qy = y(qInv);
@@ -160,15 +135,6 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   Av = Iv(:);
   Aw = Iw(:);
 
-  %cvx_begin
-  %  variables cvxDu(nPix,1) cvxDv(nPix,1)
-  %  minimize( 0.5*sum( (Au.*cvxDu + Av.*cvxDv - b).^2 ) + ...
-  %    eta*norm(D1*cvxDu,1) + eta*norm(D2*cvxDu,1) + ...
-  %    eta*norm(D1*cvxDv,1) + eta*norm(D2*cvxDv,1) );
-  %cvx_end
-  %cvxDu = reshape( cvxDu, [nRows nCols] );
-  %cvxDv = reshape( cvxDv, [nRows nCols] );
-  
   M11 = Au.*Au + 1;   M12 = Au.*Av;         M13 = Au.*Aw;
   M21 = M12;          M22 = Av.*Av + 1;     M23 = Av.*Aw;
   M31 = M13;          M32 = M23;            M33 = Aw.*Aw+1;
@@ -192,17 +158,18 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
       (D1'*lambda2_1 + D2'*lambda2_2 + D3'*lambda2_3)/rho;
     x1 = U\(L\(arg1(p)));
     x1 = x1(qInv);
-    %x1 = M \ arg1;
+    %x1 = B \ arg1;
     arg2 = y2 + D1'*z2_1 + D2'*z2_2 + D3'*z2_3 - lambda1_2/rho - ...
       (D1'*lambda3_1 + D2'*lambda3_2 + D3'*lambda3_3)/rho;
     x2 = U\(L\(arg2(p)));
     x2 = x2(qInv);
-    %x2 = M \ arg2;
+    %x2 = B \ arg2;
     arg3 = y3 + D1'*z3_1 + D2'*z3_2 + D3'*z3_3 - lambda1_3/rho - ...
       (D1'*lambda4_1 + D2'*lambda4_2 + D3'*lambda4_3);
     x3 = U\(L\(arg3(p)));
     x3 = x3(qInv);
-
+    %x3 = B \ arg3;
+    
     % Update y
     nu1 = Au.*b + lambda1_1 + rho*x1;
     nu2 = Av.*b + lambda1_2 + rho*x2;
@@ -245,21 +212,125 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   dw = reshape( x3, [nRows nCols nPages] );
 
   % for diagnostics
-save( 'state.mat' );
   showDiagnostics = 0;
   if showDiagnostics==1
     close all;
-    admmOptVal = ofObjective( Au, Av, b, x1, x2, eta, D1, D2 );
+    admmOptVal = ofObjective( Au, Av, Aw, b, x1, x2, x3, eta, D1, D2, D3 );
     disp(['ADMM Optimal Value: ', num2str(admmOptVal) ] );
-    ofRes = ofResidual3D( Iu, Iv, It, du, dv );
+    ofRes = ofResidual3D( Iu, Iv, Iw, It, du, dv, dw );
     figure, imshow( imresize( ofRes, ceil(512/nRows), 'nearest' ), [] );
     title('OF Residual', 'FontSize', 20);
-    %load( 'star.mat' );
-    %objStar = ofObjective( Au, Av, b, x1Star, x2Star, eta, D1, D2 );
+    %load( 'star3D.mat' );
+    %objStar = ofObjective( Au, Av, Aw, b, x1Star, x2Star, x3Star, ...
+    %  eta, D1, D2, D3 );
     %figure, plot( ( objectives - objStar ) / objStar );
     %title('relative error vs iteration');
     drawnow;
   end
+  
+  save( 'internalState.mat' );
+end
+
+function D1 = makeD1( nCols, nRows, nPages )
+  %D1 = sparse(nPix,nPix);
+  %for k = 1:nPages
+  %  for j = 1:(nCols-1)
+  %    for i = 1:nRows
+  %      ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
+  %      ijp1kIdx = (k-1)*nRows*nPages + (j+1-1)*nRows + i;
+  %      D1(ijkIdx,ijkIdx) = -1;
+  %      D1(ijkIdx,ijp1kIdx) = 1;
+  %    end
+  %  end
+  %end
+  nPix = nRows*nCols*nPages;
+  nData = 2 * ( nPages * (nCols-1) * nRows );
+  rows = zeros(1,nData);
+  cols = zeros(1,nData);
+  values = zeros(1,nData);
+  idx = 1;
+  for k = 1:nPages
+    for j = 1:(nCols-1)
+      for i = 1:nRows
+      tmp = (k-1)*nRows*nPages + (j-1)*nRows + i;
+      rows(idx) = tmp;
+      cols(idx) = tmp;
+      rows(idx+1) = tmp;
+      cols(idx+1) = (k-1)*nRows*nPages + (j+1-1)*nRows + i;
+      values(idx:idx+1) = [-1 1];
+      idx = idx+2;
+      end
+    end
+  end
+  D1 = sparse(rows,cols,values,nPix,nPix);
+end
+
+function D2 = makeD2( nCols, nRows, nPages )
+  %D2 = sparse(nPix,nPix);
+  %for k = 1:nPages
+  %  for j = 1:nCols
+  %    for i = 1:(nRows - 1)
+  %      ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
+  %      ip1jkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i + 1;
+  %      D2(ijkIdx,ijkIdx) = -1;
+  %      D2(ijkIdx,ip1jkIdx) = 1;
+  %    end
+  %  end
+  %end
+  nPix = nRows*nCols*nPages;
+  nData = nPages * nCols * (nRows-1);
+  rows = zeros(1,nData);
+  cols = zeros(1,nData);
+  values = zeros(1,nData);
+  idx = 1;
+  for k = 1:nPages
+    for j = 1:nCols
+      for i = 1:(nRows-1)
+        tmp = (k-1)*nRows*nPages + (j-1)*nRows + i;
+        rows(idx) = tmp;
+        cols(idx) = tmp;
+        rows(idx+1) = tmp;
+        cols(idx+1) = (k-1)*nRows*nPages + (j-1)*nRows + i + 1;
+        values(idx:idx+1) = [-1 1];
+        idx = idx+2;
+      end
+    end
+  end
+  D2 = sparse(rows,cols,values,nPix,nPix);
+end
+
+function D3 = makeD3( nCols, nRows, nPages )
+  %D3 = sparse(nPix,nPix);
+  %for k = 1:(nPages-1)
+  %  for j = 1:nCols
+  %    for i = 1:nRows
+  %      ijkIdx = (k-1)*nRows*nPages + (j-1)*nRows + i;
+  %      ijkp1Idx = (k-1+1)*nRows*nPages + (j-1)*nRows + i;
+  %      D3(ijkIdx,ijkIdx) = -1;
+  %      D3(ijkIdx,ijkp1Idx) = 1;
+  %    end
+  %  end
+  %end
+  nPix = nRows*nCols*nPages;
+  nData = (nPages-1) * nCols * nRows;
+  rows = zeros(1,nData);
+  cols = zeros(1,nData);
+  values = zeros(1,nData);
+  idx = 1;
+  for k = 1:(nPages-1);
+    for j = 1:nCols
+      for i = 1:nRows
+        tmp = (k-1)*nRows*nPages + (j-1)*nRows + i;
+        rows(idx) = tmp;
+        cols(idx) = tmp;
+        rows(idx+1) = tmp;
+        cols(idx+1) = (k-1+1)*nRows*nPages + (j-1)*nRows + i;
+        values(idx:idx+1) = [-1 1];
+        idx = idx+2;
+      end
+    end
+  end
+  D3 = sparse(rows,cols,values,nPix,nPix);
 end
 
 
@@ -296,12 +367,13 @@ function out = softThresh( in, thresh )
 end
 
 
-function out = ofObjective( Iu, Iv, b, du, dv, eta, D1, D2 )
-  Agam = Iu.*du + Iv.*dv;
+function out = ofObjective( Iu, Iv, Iw, b, du, dv, dw, eta, D1, D2, D3 )
+  Agam = Iu.*du + Iv.*dv + Iw.*dw;
   Agamb = Agam - b;
   out = 0.5*sum(Agamb.*Agamb) + ...
-    eta*norm(D1*du,1) + eta*norm(D2*du,1) + ...
-    eta*norm(D1*dv,1) + eta*norm(D2*dv,1);
+    eta*norm(D1*du,1) + eta*norm(D2*du,1) + eta*norm(D3*du,1) + ...
+    eta*norm(D1*dv,1) + eta*norm(D2*dv,1) + eta*norm(D3*dv,1) + ...
+    eta*nrom(D1*dw,1) + eta*norm(D2*dw,1) + eta*norm(D3*dw,1);
 end
 
 

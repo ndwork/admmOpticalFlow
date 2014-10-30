@@ -66,31 +66,14 @@ function [du,dv] = ofADMM( img1, img2, eta )
   Iu = ( Iu1 + Iu2 ) / 2;
   Iv = ( Iv1 + Iv2 ) / 2;
   It = img2 - img1;
-  
-  D1 = sparse(nPix,nPix);
-  for j = 1:(nCols-1)
-    for i = 1:nRows
-      ijIdx = (j-1)*nRows + i;
-      ijp1Idx = (j + 1 - 1)*nRows + i;
-      D1(ijIdx,ijIdx) = -1;
-      D1(ijIdx,ijp1Idx) = 1;
-    end
-  end
 
-  D2 = sparse(nPix,nPix);
-  for j = 1:nCols
-    for i = 1:(nRows - 1)
-      ijIdx = (j-1)*nRows + i;
-      ip1jIdx = (j-1)*nRows + i + 1;
-      D2(ijIdx,ijIdx) = -1;
-      D2(ijIdx,ip1jIdx) = 1;
-    end
-  end
+  D1 = makeD1( nRows, nCols );
+  D2 = makeD2( nRows, nCols );
 
-  M = speye(nPix) + D1'*D1 + D2'*D2;
+  B = speye(nPix) + D1'*D1 + D2'*D2;
 
   % Store an LU decomposition of M for faster solving later
-  [L,U,p,q] = lu(M,'vector'); % NOTE: PMQ = LU, and Py = y(p); Qy = y(qInv);
+  [L,U,p,q] = lu(B,'vector'); % NOTE: PMQ = LU, and Py = y(p); Qy = y(qInv);
   p = p';
   q = q';
   pInv(p) = 1:nPix;
@@ -144,13 +127,13 @@ function [du,dv] = ofADMM( img1, img2, eta )
       (D1'*lambda2_1 + D2'*lambda2_2)/rho;
     x1 = U\(L\(arg1(p)));
     x1 = x1(qInv);
-    %x1 = M \ arg1;
+    %x1 = B \ arg1;
     arg2 = y2 + D1'*z2_1 + D2'*z2_2 - lambda1_2/rho - ...
       (D1'*lambda3_1 + D2'*lambda3_2)/rho;
     x2 = U\(L\(arg2(p)));
     x2 = x2(qInv);
-    %x2 = M \ arg2;
-
+    %x2 = B \ arg2;
+    
     % Update y
     nu1 = Au.*b + lambda1_1 + rho*x1;
     nu2 = Av.*b + lambda1_2 + rho*x2;
@@ -191,6 +174,67 @@ function [du,dv] = ofADMM( img1, img2, eta )
     %title('relative error vs iteration');
     drawnow;
   end
+end
+
+
+function D1 = makeD1( nRows, nCols )
+  %D1 = sparse(nPix,nPix);
+  %for j = 1:(nCols-1)
+  %  for i = 1:nRows
+  %    ijIdx = (j-1)*nRows + i;
+  %    ijp1Idx = (j + 1 - 1)*nRows + i;
+  %    D1(ijIdx,ijIdx) = -1;
+  %    D1(ijIdx,ijp1Idx) = 1;
+  %  end
+  %end
+  nPix = nRows * nCols;
+  nData = 2* (nRows * (nCols-1));
+  rows = zeros(1,nData);
+  cols = zeros(1,nData);
+  values = zeros(1,nData);
+  idx = 1;
+  for j = 1:(nCols-1)
+    for i = 1:nRows
+      tmp = (j-1)*nRows + i;
+      rows(idx) = tmp;
+      cols(idx) = tmp;
+      rows(idx+1) = tmp;
+      cols(idx+1) = (j+1-1)*nRows + i;
+      values(idx:idx+1) = [-1 1];
+      idx = idx + 2;
+    end
+  end
+  D1 = sparse(rows,cols,values,nPix,nPix);
+end
+
+function D2 = makeD2( nRows, nCols )
+  %D2 = sparse(nPix,nPix);
+  %for j = 1:nCols
+  %  for i = 1:(nRows - 1)
+  %    ijIdx = (j-1)*nRows + i;
+  %    ip1jIdx = (j-1)*nRows + i + 1;
+  %    D2(ijIdx,ijIdx) = -1;
+  %    D2(ijIdx,ip1jIdx) = 1;
+  %  end
+  %end
+  nPix = nRows * nCols;
+  nData = 2 * ( nCols * (nRows-1) );
+  rows = zeros(1,nData);
+  cols = zeros(1,nData);
+  values = zeros(1,nData);
+  idx = 1;
+  for j = 1:nCols
+    for i = 1:(nRows - 1)
+      tmp = (j-1)*nRows + i;
+      rows(idx) = tmp;
+      cols(idx) = tmp;
+      rows(idx+1) = tmp;
+      cols(idx+1) = (j-1)*nRows + i + 1;
+      values(idx:idx+1) = [-1 1];
+      idx = idx + 2;
+    end
+  end
+  D2 = sparse(rows,cols,values,nPix,nPix);
 end
 
 
