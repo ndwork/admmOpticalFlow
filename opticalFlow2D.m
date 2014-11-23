@@ -15,7 +15,7 @@ function [du,dv] = opticalFlow2D( img1, img2 )
   for level=numel(pyramid1):-1:1
     disp(['Working on pyramid level ', num2str(level)]);
     tmp1 = pyramid1{level};
-    [nRows nCols] = size( pyramid1{level} );
+    [nRows, nCols] = size( pyramid1{level} );
 
     du = medfilt2( du, [3 3] );
     dv = medfilt2( dv, [3 3] );
@@ -81,6 +81,26 @@ function [du,dv] = ofADMM( img1, img2, eta )
   pInv = pInv';
   qInv = qInv';
   
+  % Store for update X with DCT
+  applyM = @(u) u + D1'*D1*u + D2'*D2*u;
+  allOnes = ones(nRows,nCols);
+  %idctAllOnes = idct2(allOnes);
+  idctAllOnes = mirt_idctn(allOnes);
+  idctAllOnes = idctAllOnes(:);
+  MIdctAllOnes = applyM(idctAllOnes);
+  %eigValsM = dct2( reshape( MIdctAllOnes, [nRows nCols] ) );
+  eigValsM = mirt_dctn( reshape( MIdctAllOnes, [nRows nCols] ) );
+  eigValsMInv = eigValsM.^(-1);
+
+
+% Now we'll solve Mx = b .
+b = randn(nRows,nCols);
+xDCT = updateXwDCT( eigValsMInv, nRows, nCols, b );
+xLU = updateXwLU(L, U, p, qInv, b );
+diff = sum( abs( xDCT(:) - xLU(:) ) );
+disp(['Diff is: ', num2str(diff)]);
+  
+  
   % Initializations
   x1 = zeros( nPix, 1 );
   x2 = zeros( nPix, 1 );
@@ -122,18 +142,19 @@ function [du,dv] = ofADMM( img1, img2, eta )
 
     %objectives(i) = ofObjective( Au, Av, b, x1, x2, eta, D1, D2 );
 
-    % Update x
     arg1 = y1 + D1'*z1_1 + D2'*z1_2 - lambda1_1/rho - ...
       (D1'*lambda2_1 + D2'*lambda2_2)/rho;
-    x1 = U\(L\(arg1(p)));
-    x1 = x1(qInv);
     %x1 = B \ arg1;
+    %x1 = updateXwLU( L, U, p, qInv, arg1);
+    x1 = updateXwDCT( eigValsMInv, nRows, nCols, arg1 );
+
     arg2 = y2 + D1'*z2_1 + D2'*z2_2 - lambda1_2/rho - ...
       (D1'*lambda3_1 + D2'*lambda3_2)/rho;
-    x2 = U\(L\(arg2(p)));
-    x2 = x2(qInv);
     %x2 = B \ arg2;
-    
+    %x2 = updateXwLU( L, U, p, qInv, arg2 );
+    x2 = updateXwDCT( eigValsMInv, nRows, nCols, arg2 );
+
+
     % Update y
     nu1 = Au.*b + lambda1_1 + rho*x1;
     nu2 = Av.*b + lambda1_2 + rho*x2;
@@ -237,8 +258,31 @@ function D2 = makeD2( nRows, nCols )
   D2 = sparse(rows,cols,values,nPix,nPix);
 end
 
+function x = updateXwDCT( eigValsMInv, nRows, nCols, b_in )
+  b = reshape( b_in, [nRows nCols] );
+  %x = idct2( eigValsMInv .* dct2(b) );
+  x = mirt_idctn( eigValsMInv .* mirt_dctn(b) );
+  x = x(:);
+  %check = applyM(x) - b;
+  %check = max(abs(check(:)));
+end
 
-function [dx dy] = imgDeriv( img )
+function x = updateXwLU(L, U, p, qInv, arg );
+  % % The inputs are defined as follows:
+  % % Store an LU decomposition of B for faster solving later
+  %[L,U,p,q] = lu(B,'vector'); % NOTE: PMQ = LU, and Py = y(p); Qy = y(qInv);
+  %p = p';
+  %q = q';
+  %pInv(p) = 1:nPix;
+  %qInv(q) = 1:nPix;
+  %pInv = pInv';
+  %qInv = qInv';
+
+  x = U\(L\(arg(p)));
+  x = x(qInv);
+end
+
+function [dx, dy] = imgDeriv( img )
   [M N] = size( img );
   dx = zeros(M,N);
   dy = zeros(M,N);
