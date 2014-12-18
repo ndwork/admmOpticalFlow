@@ -77,17 +77,17 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
 
   [nRows, nCols, nPages] = size( data1 );
 
-  applyD1 = @(u) cat(1, u(2:end,:,:) - u(1:end-1,:,:),zeros(1,nCols,nPages));
-  applyD2 = @(u) cat(2, u(:,2:end,:) - u(:,1:end-1,:),zeros(nRows,1,nPages));
+  applyD1 = @(u) cat(2, u(:,2:end,:) - u(:,1:end-1,:),zeros(nRows,1,nPages));
+  applyD2 = @(u) cat(1, u(2:end,:,:) - u(1:end-1,:,:),zeros(1,nCols,nPages));
   applyD3 = @(u) cat(3, u(:,:,2:end) - u(:,:,1:end-1),zeros(nRows,nCols,1));
-  applyD1Trans = @(u) cat(1,-u(1,:,:),u(1:end-2,:,:) - u(2:end-1,:,:),u(end-1,:,:));
-  applyD2Trans = @(u) cat(2,-u(:,1,:),u(:,1:end-2,:) - u(:,2:end-1,:),u(:,end-1,:));
+  applyD1Trans = @(u) cat(2,-u(:,1,:),u(:,1:end-2,:) - u(:,2:end-1,:),u(:,end-1,:));
+  applyD2Trans = @(u) cat(1,-u(1,:,:),u(1:end-2,:,:) - u(2:end-1,:,:),u(end-1,:,:));
   applyD3Trans = @(u) cat(3,-u(:,:,1),u(:,:,1:end-2) - u(:,:,2:end-1),u(:,:,end-1));
   applyM = @(u) u + applyD1Trans(applyD1(u)) + applyD2Trans(applyD2(u)) + applyD3Trans(applyD3(u));
   allOnes = ones(nRows,nCols,nPages);
   eigValsM = mirt_dctn(applyM(mirt_idctn(allOnes)));
   eigValsMInv = eigValsM.^(-1);
-  
+
   [Iu1, Iv1, Iw1] = imgDeriv3D( data1 );
   [Iu2, Iv2, Iw2] = imgDeriv3D( data2 );
   Iu = ( Iu1 + Iu2 ) / 2;
@@ -131,9 +131,9 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   Ivb = Iv.*b;
   Iwb = Iw.*b;
 
-  M11 = Iu.*Iu + 1;   M12 = Iu.*Iv;         M13 = Iu.*Iw;
-  M21 = M12;          M22 = Iv.*Iv + 1;     M23 = Iv.*Iw;
-  M31 = M13;          M32 = M23;            M33 = Iw.*Iw+1;
+  M11 = Iu.*Iu + rho;   M12 = Iu.*Iv;           M13 = Iu.*Iw;
+  M21 = M12;            M22 = Iv.*Iv + rho;     M23 = Iv.*Iw;
+  M31 = M13;            M32 = M23;              M33 = Iw.*Iw + rho;
 
   K1 = M32 - M31./M11.*M12;
   K2 = M22 - M21./M11.*M12;
@@ -236,9 +236,6 @@ function [dx, dy, dz] = imgDeriv3D( data )
   dx = zeros(M,N,K);
   dy = zeros(M,N,K);
   dz = zeros(M,N,K);
-
-  %dx(:,1:nCols-1) = img1(:,2:nCols) - img1(:,1:nCols-1);
-  %dy(1:nRows-1,:) = img1(2:nRows,:) - img1(1:nRows-1,:);
 
   dx(:,2:N-1,:) = ( data(:,3:N,:) - data(:,1:N-2,:) ) / 2;
   dx(:,1,:) = data(:,2,:) - data(:,1,:);
