@@ -1,14 +1,13 @@
 
-function [du,dv,dw] = opticalFlow3D( data1, data2 )
+function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
 
-  % optical flow parameters
-  %eta = 1d-2;
-  %eta = 1d-4;
-  eta = 1d-3;
+  eta = 1d-4;  % optical flow parameter
 
   pyramid1 = makeDataPyramid3( data1, 3 );
   pyramid2 = makeDataPyramid3( data2, 3 );
 
+maskPyramid = makeDataPyramid3( mask, 3 );
+ 
   sLevel1 = size( pyramid1{end} );
   du = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
   dv = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
@@ -29,30 +28,57 @@ function [du,dv,dw] = opticalFlow3D( data1, data2 )
     dv = resize(dv, [nRows nCols nPages], 'bilinear') * scale;
     dw = resize(dw, [nRows nCols nPages], 'bilinear') * scale;
 
-    tmp2 = ofInterp3D( pyramid2{level}, du, dv, dw );
+    interp2 = ofInterp3D( pyramid2{level}, du, dv, dw );
 
-    [newDu,  newDv, newDw] = ofADMM3D( tmp1, tmp2, eta );
+%if level == 1
+%  newDu=0; newDv=0; newDw=0;
+%else
+    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, eta );
+    newDu = newDu .* ( maskPyramid{level} > 0 );
+    newDv = newDv .* ( maskPyramid{level} > 0 );
+    newDw = newDw .* ( maskPyramid{level} > 0 );
+%end
 
     du = du + newDu;
     dv = dv + newDv;
     dw = dw + newDw;
 
-    %showDiagnostics = 1;
-    %if showDiagnostics==1
-    %  close all;
-    %  interped2 = ofInterp( pyramid2{level}, du, dv );
-    %  figure, imshow( imresize( tmp1, ceil(512/nRows), 'nearest' ), [] );
-    %  title('img1', 'FontSize', 20);
-    %  figure, imshow( imresize( tmp2, ceil(512/nRows), 'nearest' ), [] );
-    %  title('img2', 'FontSize', 20);
-    %  figure, imshow( imresize( interped2, ceil(512/nRows), 'nearest' ), [] );
-    %  title('interped2', 'FontSize', 20);
-    %  figure, imshow( imresize( du, ceil(512/nRows), 'nearest' ), [] );
-    %  title('du', 'FontSize', 20);
-    %  figure, imshow( imresize( dv, ceil(512/nRows), 'nearest' ), [] );
-    %  title('dv', 'FontSize', 20);
-    %  drawnow;
-    %end
+    showDiagnostics = 0;
+    if showDiagnostics==1
+      close all;
+      [~,~,nPages] = size(tmp1);  midPage=floor(nPages/2);
+      img1 = squeeze(tmp1(:,:,midPage));
+      minImg1 = min(img1(:));  maxImg1 = max(img1(:));
+      figure;
+      imshow( imresize( img1, ceil(512/nRows), 'nearest' ), ...
+        [minImg1 maxImg1] );
+      title('img1', 'FontSize', 20);
+      tmp2 = pyramid2{level};
+      img2 = squeeze(tmp2(:,:,midPage));
+      figure;
+      imshow( imresize( img2, ceil(512/nRows), 'nearest' ), ...
+        [minImg1 maxImg1] );
+      title('img2', 'FontSize', 20);
+      interped2 = ofInterp3D( tmp2, du, dv, dw );
+      interpedImg2 = squeeze(interped2(:,:,midPage));
+      figure;
+      imshow( imresize( interpedImg2, ceil(512/nRows), 'nearest' ), ...
+        [minImg1 maxImg1] );
+      title('interp2', 'FontSize', 20);
+      duImg = squeeze(du(:,:,midPage));
+      figure;
+      imshow( imresize( duImg, ceil(512/nRows), 'nearest' ), [] );
+      title('du', 'FontSize', 20);
+      dvImg = squeeze(dv(:,:,midPage));
+      figure;
+      imshow( imresize( dvImg, ceil(512/nRows), 'nearest' ), [] );
+      title('dv', 'FontSize', 20);
+      dwImg = squeeze(dw(:,:,midPage));
+      figure;
+      imshow( imresize( dwImg, ceil(512/nRows), 'nearest' ), [] );
+      title('dw', 'FontSize', 20);
+      drawnow;
+    end
 
     save( 'tmpState.mat' );
     
@@ -73,7 +99,7 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   end
 
   % ADMM Parameters
-  rho = 1.0;
+  rho = 0.001;
 
   [nRows, nCols, nPages] = size( data1 );
 
@@ -135,19 +161,20 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   M21 = M12;            M22 = Iv.*Iv + rho;     M23 = Iv.*Iw;
   M31 = M13;            M32 = M23;              M33 = Iw.*Iw + rho;
 
-  K1 = M32 - M31./M11.*M12;
-  K2 = M22 - M21./M11.*M12;
-  K = K1 ./ K2;
-  C = M31./M11 - K.*M21./M11;
+  KInv = ( M22 - M21./M11.*M12 );
+  K = 1. / KInv;
+  CInv = -M31./M11.*M12.*K.*M21./M11.*M13 + M31./M11.*M12.*K.*M23 - ...
+    M31./M11.*M13 + M32.*K.*M21./M11.*M13 - M32.*K.*M23 + M33;
+  C = 1. / CInv;
 
   nIter = 1000;
-  %objectives = zeros(nIter,1);
+  objectives = zeros(nIter,1);
   for i=1:nIter
     if mod(i,50)==0
       disp([ 'Working on iteration ', num2str(i), ' of ', num2str(nIter) ]);
     end
 
-    %objectives(i) = ofObjective( Iu, Iv, b, x1, x2, eta, D1, D2 );
+    objectives(i) = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
 
     % Update x
     arg1 = y1 + ...
@@ -170,16 +197,16 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
       ( applyD1Trans(lambda4_1) + applyD2Trans(lambda4_2) + ...
         applyD3Trans(lambda4_3) )/rho;
     x3 = mirt_idctn(eigValsMInv.*mirt_dctn(arg3));
-    
+
     % Update y
     nu1 = Iub + lambda1_1 + rho*x1;
     nu2 = Ivb + lambda1_2 + rho*x2;
     nu3 = Iwb + lambda1_3 + rho*x3;
-    y3 = (nu3 - K.*x2 - C.*x1 ) ./ ...
-      (K.*M21./M11.*M13 - K.*M23 - M31./M11.*M13 + M33 );
-    y2 = ( nu2 - M21./M11.*nu1 + M21./M11.*M13.*nu3 - M23.*nu3 ) ./ ...
-      (M22 - M21./M11.*M12);
-    y1 = ( nu1 - M12.*y2 - M13.*y3 ) ./ M11;
+    y3 = C.*( nu3 - M31./M11.*nu1 + M31./M11.*M12.*K.*nu2 - ...
+      M31./M11.*M12.*K.*M21./M11.*nu1 - M32.*K.*nu2 + ...
+      M32.*K.*M21./M11.*nu1 );
+    y2 = K .* (nu2 - M21./M11.*nu1 + M21./M11.*M13.*y3 - M23.*y3 );
+    y1 = 1./M11 .* ( nu1 - M12.*y2 - M13.*y3 );
 
     % Update z
     z1_1 = softThresh( applyD1(x1) + lambda2_1/rho, eta/rho );
@@ -214,7 +241,7 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   showDiagnostics = 0;
   if showDiagnostics==1
     close all;
-    admmOptVal = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta, D1, D2, D3 );
+    admmOptVal = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
     disp(['ADMM Optimal Value: ', num2str(admmOptVal) ] );
     ofRes = ofResidual3D( Iu, Iv, Iw, It, du, dv, dw );
     figure, imshow( imresize( ofRes, ceil(512/nRows), 'nearest' ), [] );
@@ -226,8 +253,75 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
     %title('relative error vs iteration');
     drawnow;
   end
+
+  disp(['Max objective: ', num2str(max( objectives ))]);
+  disp(['Min objective: ', num2str(min( objectives ))]);
+  close all; figure; plot( objectives ); drawnow;
+
+end
+
+
+function out = augLagrange( Iu, Iv, It, x1, x2, x3, y1, y2, y3, ...
+  z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, eta, rho, ...
+  lambda1_1, lambda1_2, lambda1_3, lambda2_1, lambda2_2, lambda2_3, ...
+  lambda3_1, lambda3_2, lambda3_3, lambda4_1, lambda4_2, lambda4_3 )
+
+  [nRows,nCols,nPages] = size( Iu );
+
+  applyD1 = @(u) cat(2, u(:,2:end,:) - u(:,1:end-1,:),zeros(nRows,1,nPages));
+  applyD2 = @(u) cat(1, u(2:end,:,:) - u(1:end-1,:,:),zeros(1,nCols,nPages));
+  applyD3 = @(u) cat(3, u(:,:,2:end) - u(:,:,1:end-1),zeros(nRows,nCols,1));
+
+  b = -It(:);
+  Ay = Iu .* y1 + Iv .* y2;
+  fOfY = 0.5*norm(Ay(:) - b, 2)^2;
+
+  gOfZ = ...
+    eta*norm(z1_1(:),1) + eta*norm(z1_2(:),1) + eta*norm(z1_3(:),1) + ...
+    eta*norm(z2_1(:),1) + eta*norm(z2_2(:),1) + eta*norm(z2_3(:),1) + ...
+    eta*norm(z3_1(:),1) + eta*norm(z3_2(:),1) + eta*norm(z3_3(:),1);
+
+  tmpLam1_1 = lambda1_1 .* (x1-y1);
+  tmpLam1_2 = lambda1_2 .* (x2-y2);
+  tmpLam1_3 = lambda1_3 .* (x3-y3);
+  costLam1 = sum(tmpLam1_1(:)) + sum(tmpLam1_2(:)) + sum(tmpLam1_3(:));
+
+  tmpLam2 = lambda2_1 .* ( applyD1(x1) - z1_1 ) + ...
+    lambda2_2 .* ( applyD2(x1) - z1_2 ) + ...
+    lambda2_3 .* ( applyD3(x1) - z1_3 );
+  costLam2 = sum( tmpLam2(:) );
+  tmpLam3 = lambda3_1 .* ( applyD1(x2) - z2_1 ) + ...
+    lambda3_2 .* ( applyD2(x2) - z2_2 ) + ...
+    lambda3_3 .* ( applyD3(x2) - z2_3 );
+  costLam3 = sum( tmpLam3(:) );
+  tmpLam4 = lambda4_1 .* ( applyD1(x3) - z3_1 ) + ...
+    lambda4_2 .* ( applyD2(x3) - z3_2 ) + ...
+    lambda4_3 .* ( applyD3(x3) - z3_3 );
+  costLam4 = sum( tmpLam4(:) );
+
+  D1x1 = applyD1(x1);   D1x2 = applyD1(x2);   D1x3 = applyD1(x3);
+  D2x1 = applyD2(x1);   D2x2 = applyD2(x2);   D2x3 = applyD2(x3);
+  D3x1 = applyD3(x1);   D3x2 = applyD3(x2);   D3x3 = applyD3(x3);
+  augXY1 = norm( x1(:) - y1(:), 2 )^2;
+  augXY2 = norm( x2(:) - y2(:), 2 )^2;
+  augXY3 = norm( x3(:) - y3(:), 2 )^2;
+  augXZ1_1 = norm( D1x1(:) - z1_1(:), 2 )^2;
+  augXZ1_2 = norm( D2x1(:) - z1_2(:), 2 )^2;
+  augXZ1_3 = norm( D3x1(:) - z1_3(:), 2 )^2;
+  augXZ2_1 = norm( D1x2(:) - z2_1(:), 2 )^2;
+  augXZ2_2 = norm( D2x2(:) - z2_2(:), 2 )^2;
+  augXZ2_3 = norm( D3x2(:) - z2_3(:), 2 )^2;
+  augXZ3_1 = norm( D1x3(:) - z3_1(:), 2 )^2;
+  augXZ3_2 = norm( D2x3(:) - z3_2(:), 2 )^2;
+  augXZ3_3 = norm( D3x3(:) - z3_3(:), 2 )^2;
   
-  save( 'internalState.mat' );
+  out = fOfY + gOfZ + costLam1 + costLam2 + costLam3 + costLam4 + ...
+    rho/2 * ( augXY1 + augXY2 + augXY3 + ...
+      augXZ1_1 + augXZ1_2 + augXZ1_3 + ...
+      augXZ2_1 + augXZ2_2 + augXZ2_3 + ...
+      augXZ3_1 + augXZ3_2 + augXZ3_3 );
+
+  disp(['Aug Lag: ', num2str(out)]);
 end
 
 
@@ -261,13 +355,23 @@ function out = softThresh( in, thresh )
 end
 
 
-function out = ofObjective( Iu, Iv, Iw, b, du, dv, dw, eta, D1, D2, D3 )
+function out = ofObjective( Iu, Iv, Iw, b, du, dv, dw, eta )
+  [nRows,nCols,nPages] = size(Iu);
+
+  applyD1 = @(u) cat(2, u(:,2:end,:) - u(:,1:end-1,:),zeros(nRows,1,nPages));
+  applyD2 = @(u) cat(1, u(2:end,:,:) - u(1:end-1,:,:),zeros(1,nCols,nPages));
+  applyD3 = @(u) cat(3, u(:,:,2:end) - u(:,:,1:end-1),zeros(nRows,nCols,1));
+
+  D1du = applyD1(du);   D1dv = applyD1(dv);   D1dw = applyD1(dw);
+  D2du = applyD2(du);   D2dv = applyD2(dv);   D2dw = applyD2(dw);
+  D3du = applyD3(du);   D3dv = applyD3(dv);   D3dw = applyD3(dw);
+
   Agam = Iu.*du + Iv.*dv + Iw.*dw;
   Agamb = Agam - b;
-  out = 0.5*sum(Agamb.*Agamb) + ...
-    eta*norm(D1*du,1) + eta*norm(D2*du,1) + eta*norm(D3*du,1) + ...
-    eta*norm(D1*dv,1) + eta*norm(D2*dv,1) + eta*norm(D3*dv,1) + ...
-    eta*nrom(D1*dw,1) + eta*norm(D2*dw,1) + eta*norm(D3*dw,1);
+  out = 0.5*sum(Agamb(:).*Agamb(:)) + ...
+    eta*norm(D1du(:),1) + eta*norm(D2du(:),1) + eta*norm(D3du(:),1) + ...
+    eta*norm(D1dv(:),1) + eta*norm(D2dv(:),1) + eta*norm(D3dv(:),1) + ...
+    eta*norm(D1dw(:),1) + eta*norm(D2dw(:),1) + eta*norm(D3dw(:),1);
 end
 
 

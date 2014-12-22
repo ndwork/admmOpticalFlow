@@ -1,54 +1,43 @@
 
-
 function stackCardiacImages
   close all; clear;
 
-  datacase = 1;
-  switch datacase
-    case 1
-      load '/Volumes/Seagate2TB/Data/mriCardiacNavs/esp3dn25148.mat';
-      % The max dimensions of x are (128,128,64,508);
-      x = x / 500;
-      [nRows,nCols,nPages,nData] = size(x);
-    case 3
-      load '/Volumes/Seagate2TB/Data/cardiacRecons/res2mm/img318143.mat';
-      % The max dimensions of m are (120,120,80,20);  
-      x = m;
-      clearvars m;
-      [nRows,nCols,nPages,nData] = size(x);
-  end
-nData = 60;
+%   datacase = 4;
+%   x = loadData( datacase );
+%   [nRows,nCols,nSlices,nData] = size(x);
+% nData = min([nData,5]);
+% 
+% mask = loadMask( [nRows,nCols,nSlices] );
+% 
+%   midData = ceil(nData/2);
+%   midPage = ceil(nSlices/2);
+%   flow = struct( 'du', zeros(nRows,nCols,nSlices), ...
+%                  'dv', zeros(nRows,nCols,nSlices), ...
+%                  'dw', zeros(nRows,nCols,nSlices)  );
+%   flows = cell(nData-1,1);
+%   parfor i=1:nData-1
+%     disp([ 'Working on i=', num2str(midPage), ' of ', num2str(nData-1) ]);
+%     flows{i} = flow;
+% 
+%     data1 = abs( x(:,:,:,i) );
+%     data2 = abs( x(:,:,:,i+1) );
+% 
+%     [du,dv,dw] = opticalFlow3D( data1, data2, mask );
+%     flows{i}.du = du;
+%     flows{i}.dv = dv;
+%     flows{i}.dw = dw;
+% 
+%     %figure; imshow( imresize( data1(:,:,midPage), 3 ), [] );
+%     %drawnow;
+%     %interped = ofInterp3D( data2, du, dv, dw );
+%     %figure; imshow( imresize( interped(:,:,midPage), 3 ), [] );
+%     %drawnow;
+% 
+%   end
 
-  midPage = ceil(nPages/2);
-  flow = struct( 'du', zeros(nRows,nCols,nPages), ...
-                 'dv', zeros(nRows,nCols,nPages), ...
-                 'dw', zeros(nRows,nCols,nPages)  );
-  flows = cell(nData-1,1);
-  for i=1:nData-1
-    disp([ 'Working on i=', num2str(i), ' of ', num2str(nData-1) ]);
-    flows{i} = flow;
-
-    data1 = abs( x(:,:,:,i) );
-    data2 = abs( x(:,:,:,i+1) );
-
-    [du,dv,dw] = opticalFlow3D( data1, data2 );
-    flows{i}.du = du;
-    flows{i}.dv = dv;
-    flows{i}.dw = dw;
-
-    %figure; imshow( imresize( data1(:,:,midPage), 3 ), [] );
-    %drawnow;
-    %interped = ofInterp3D( data2, du, dv, dw );
-    %figure; imshow( imresize( interped(:,:,midPage), 3 ), [] );
-    %drawnow;
-
-  end
-
-%clearvars x;
-%save( 'stackState1_nIter500.mat', 'flows' );
-
-%load 'stackState1.mat';
-load 'stackState1_diffEta.mat';
+%save( 'stackState.mat', 'flows' );
+%save( 'stackState.mat' );
+load 'stackState.mat';
 
 
 
@@ -68,15 +57,14 @@ load 'stackState1_diffEta.mat';
 %   end
 
   % Make a stack
-  nStack = 3;
-  midIndx = 30;
+  nStack = nData;
   if mod(nStack,2)==0, error('nStack must be odd'); end;
   nHalfStack = floor( nStack / 2 );
-  stack = x(:,:,:,midIndx);
-  simpleStack = x(:,:,:,midIndx);
+  stack = x(:,:,:,midData);
+  simpleStack = x(:,:,:,midData);
   for i=1:nHalfStack
-    fIndx = midIndx + i;
-    bIndx = midIndx - i;
+    fIndx = midData + i;
+    bIndx = midData - i;
 
     if i==1
       fFlows = flows{fIndx-1};
@@ -115,14 +103,14 @@ load 'stackState1_diffEta.mat';
     simpleStack = simpleStack + x(:,:,:,bIndx);
   end
 
-  figure;  imshow( imresize( abs(x(:,:,32,midIndx)), 4), [] );
+  figure;  imshow( imresize( abs(x(:,:,midPage,midData)), 4), [] );
   title('Single Image');
-  figure;  imshow( imresize( abs(simpleStack(:,:,32)), 4), [] );
+  figure;  imshow( imresize( abs(simpleStack(:,:,midPage)), 4), [] );
   title('Simple Stack');
-  figure;  imshow( imresize( abs(stack(:,:,32)), 4), [] );
+  figure;  imshow( imresize( abs(stack(:,:,midPage)), 4), [] );
   title('OF Stacked Image');
 
-  midPage = ceil(nPages/2);
+  midPage = ceil(nSlices/2);
   midCol = ceil(nCols/2);
   midRow = ceil(nRows/2);
 
@@ -229,10 +217,10 @@ load 'heartRegions.mat';
   disp(['Mean Energy Diff Interps: ', num2str(mean(energyInterpeds)) ]);
   disp(['Mean Improvement: ', num2str(mean(improvements)) ]);
 
-  midImg = abs(x(:,:,:,midIndx));
-  du = flows{midIndx}.du;
-  dv = flows{midIndx}.dv;
-  dw = flows{midIndx}.dw;
+  midImg = abs(x(:,:,:,midData));
+  du = flows{midData}.du;
+  dv = flows{midData}.dv;
+  dw = flows{midData}.dw;
   magFlow = sqrt( du.*du + dv.*dv + dw.*dw );
   minMagFlow = min( magFlow(:) );
   maxMagFlow = max( magFlow(:) );
@@ -252,7 +240,7 @@ load 'heartRegions.mat';
   figure; imshow( imresize(axMidFlow,4), [minMagFlow maxMagFlow] );
   title('Axial Flow');
 
-  sagFlow = zeros(nRows,nPages,3);
+  sagFlow = zeros(nRows,nSlices,3);
   sagFlow = imrotate( sagFlow, 90 );
   sagFlow(:,:,1) = rot90( squeeze( du(:,midCol,:) ));
   sagFlow(:,:,2) = rot90( squeeze( dv(:,midCol,:) ));
@@ -271,7 +259,7 @@ load 'heartRegions.mat';
   figure; imshow( imresize(sagFlow,4), [] );
   title('Sagittal Flow')
 
-  corFlow = zeros(nCols,nPages,3);
+  corFlow = zeros(nCols,nSlices,3);
   corFlow = imrotate( corFlow, 90 );
   corFlow(:,:,1) = rot90( squeeze( du(midRow,:,:) ));
   corFlow(:,:,2) = rot90( squeeze( dv(midRow,:,:) ));
@@ -291,14 +279,4 @@ load 'heartRegions.mat';
   title('Coronal Flow');
 
 end
-
-
-
-
-
-
-
-
-
-
 

@@ -189,12 +189,14 @@ function out = augLagrange( Iu, Iv, It, x1, x2, y1, y2, ...
     lambda3_2 .* ( applyD2(x2) - z2_2 );
   costLam3 = sum( tmpLam3(:) );
 
+  D1x1 = applyD1(x1);   D1x2 = applyD1(x2);
+  D2x1 = applyD2(x1);   D2x2 = applyD2(x2);
   augXY1 = norm( x1(:) - y1(:), 2 )^2;
   augXY2 = norm( x2(:) - y2(:), 2 )^2;
-  augXZ1_1 = norm( applyD1(x1) - z1_1, 2 )^2;
-  augXZ1_2 = norm( applyD2(x1) - z1_2, 2 )^2;
-  augXZ2_1 = norm( applyD1(x2) - z2_1, 2 )^2;
-  augXZ2_2 = norm( applyD2(x2) - z2_2, 2 )^2;
+  augXZ1_1 = norm( D1x1(:) - z1_1(:), 2 )^2;
+  augXZ1_2 = norm( D2x1(:) - z1_2(:), 2 )^2;
+  augXZ2_1 = norm( D1x2(:) - z2_1(:), 2 )^2;
+  augXZ2_2 = norm( D2x2(:) - z2_2(:), 2 )^2;
   
   out = fOfY + gOfZ + costLam1 + costLam2 + costLam3 + ...
     rho/2 * ( augXY1 + augXY2 + augXZ1_1 + augXZ1_2 + augXZ2_1 + augXZ2_2 );
