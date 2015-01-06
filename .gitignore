@@ -2,3 +2,4 @@
 *.m~
 *.jpg
 .DS_store
+/masks_*
