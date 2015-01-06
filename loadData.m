@@ -15,19 +15,15 @@ function x = loadData( datacase )
       % The max dimensions of m are (256,256,112,6);
       x = m;  clearvars m;
     case 4
-      %load '/Volumes/Seagate2TB/Data/cardiacImgs/P02560_img.mat';
       x = loadSerenaData(1);
       x = x / max( x(:));
     case 5
-      %load '/Volumes/Seagate2TB/Data/cardiacImgs/P02560_img.mat';
       x = loadSerenaData(2);
       x = x / max( x(:));
     case 6
-      %load '/Volumes/Seagate2TB/Data/cardiacImgs/P02560_img.mat';
       x = loadSerenaData(3);
       x = x / max( x(:));
     case 7
-      %load '/Volumes/Seagate2TB/Data/cardiacImgs/P02560_img.mat';
       x = loadSerenaData(4);
       x = x / max( x(:));
   end

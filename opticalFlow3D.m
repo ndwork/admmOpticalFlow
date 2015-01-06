@@ -1,12 +1,15 @@
 
 function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
 
-  eta = 1d-4;  % optical flow parameter
+  %eta = 1d-5;  % optical flow parameter
+  eta = 1d-11;
 
   pyramid1 = makeDataPyramid3( data1, 3 );
   pyramid2 = makeDataPyramid3( data2, 3 );
 
-maskPyramid = makeDataPyramid3( mask, 3 );
+  if exist( 'mask', 'var' )
+    maskPyramid = makeDataPyramid3( mask, 3 );
+  end
  
   sLevel1 = size( pyramid1{end} );
   du = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
@@ -28,15 +31,19 @@ maskPyramid = makeDataPyramid3( mask, 3 );
     dv = resize(dv, [nRows nCols nPages], 'bilinear') * scale;
     dw = resize(dw, [nRows nCols nPages], 'bilinear') * scale;
 
-    interp2 = ofInterp3D( pyramid2{level}, du, dv, dw );
+    tmp2 = pyramid2{level};
+    interp2 = ofInterp3D( tmp2, du, dv, dw );
 
 %if level == 1
 %  newDu=0; newDv=0; newDw=0;
 %else
-    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, eta );
-    newDu = newDu .* ( maskPyramid{level} > 0 );
-    newDv = newDv .* ( maskPyramid{level} > 0 );
-    newDw = newDw .* ( maskPyramid{level} > 0 );
+    scaledEta = eta * numel(tmp1(:));
+    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, scaledEta );
+    if exist( 'mask', 'var' )
+      newDu = newDu .* ( maskPyramid{level} > 0 );
+      newDv = newDv .* ( maskPyramid{level} > 0 );
+      newDw = newDw .* ( maskPyramid{level} > 0 );
+    end
 %end
 
     du = du + newDu;
@@ -45,7 +52,6 @@ maskPyramid = makeDataPyramid3( mask, 3 );
 
     showDiagnostics = 0;
     if showDiagnostics==1
-      close all;
       [~,~,nPages] = size(tmp1);  midPage=floor(nPages/2);
       img1 = squeeze(tmp1(:,:,midPage));
       minImg1 = min(img1(:));  maxImg1 = max(img1(:));
@@ -99,7 +105,9 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   end
 
   % ADMM Parameters
-  rho = 0.001;
+  %rho = 0.001;
+  rho = 5d-4;
+  nIter = 1000;
 
   [nRows, nCols, nPages] = size( data1 );
 
@@ -167,7 +175,6 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
     M31./M11.*M13 + M32.*K.*M21./M11.*M13 - M32.*K.*M23 + M33;
   C = 1. / CInv;
 
-  nIter = 1000;
   objectives = zeros(nIter,1);
   for i=1:nIter
     if mod(i,50)==0
@@ -254,9 +261,13 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
     drawnow;
   end
 
-  disp(['Max objective: ', num2str(max( objectives ))]);
-  disp(['Min objective: ', num2str(min( objectives ))]);
-  close all; figure; plot( objectives ); drawnow;
+  showDiagnostics = 0;
+  if showDiagnostics==1
+    disp(['Rho: ', num2str(rho)]);
+    disp(['Max objective: ', num2str(max( objectives ))]);
+    disp(['Min objective: ', num2str(min( objectives ))]);
+    close all; figure; plot( objectives ); drawnow;
+  end
 
 end
 
