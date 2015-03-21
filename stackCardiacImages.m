@@ -3,17 +3,17 @@ function stackCardiacImages
   close all; clear;
 
   %-- Parameters
-  datacase = 5;
-  nStack = 5;
+  datacase = 10;
+  nStack = 3;
   maxNData = 7;
 
-  x = loadData( datacase );
+  [x,eta,rho] = loadData( datacase );
   [nRows,nCols,nSlices,nData] = size(x);
   nData = min([nData,maxNData]);
 
-  %saveAllSlices( x );
-  mask = loadMask( [nRows,nCols,nSlices], datacase );
-  
+
+  %mask = loadMask( [nRows,nCols,nSlices], datacase );
+
   nStack = min([nStack,nData]);
 
   midData = ceil(nData/2);
@@ -22,29 +22,31 @@ function stackCardiacImages
                  'dv', zeros(nRows,nCols,nSlices), ...
                  'dw', zeros(nRows,nCols,nSlices)  );
   flows = cell(nData-1,1);
-  if exist('mask','var'), maskExists=1; else maskExists=0; end;
+
   parfor i=1:nData-1
     disp([ 'Working on i=', num2str(i), ' of ', num2str(nData-1) ]);
     flows{i} = flow;
-    
+
     data1 = squeeze( x(:,:,:,i) );
     data2 = squeeze( x(:,:,:,i+1) );
 
-    maskedIndxs = find( mask>0 );
-    scales = data1(maskedIndxs) ./ data2(maskedIndxs);
-    data2 = data2 .* median( scales );
-
-    if maskExists==1
-      [du,dv,dw] = opticalFlow3D( data1, data2, mask );
+    if exist('mask','var')
+      maskedIndxs = find( mask>0 & data2~=0 );
+      scales = data1(maskedIndxs) ./ data2(maskedIndxs);
+      data2 = data2 .* median( scales );
+      [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, mask );
     else
-      [du,dv,dw] = opticalFlow3D( data1, data2 );
+      maskedIndxs = find( data2~=0 );
+      scales = data1(maskedIndxs) ./ data2(maskedIndxs);
+      data2 = data2 .* median( scales );
+      [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho );
     end
     flows{i}.du = du;
     flows{i}.dv = dv;
     flows{i}.dw = dw;
   end
 
-%save( 'stackState.mat' );
+save( 'stackState.mat' );
 %load 'stackState_1dn3.mat';   % eta=1d-3
 %load 'stackState_5dn4.mat';   % eta=5d-4
 %load 'stackState_1d10scaleByN.mat';
@@ -82,13 +84,15 @@ title(num2str(midData), 'FontSize', 20);
     fInterpd = ofInterp3D( x(:,:,:,fIndx), fFlows.du, fFlows.dv, fFlows.dw );    
     bInterpd = ofInterp3D( x(:,:,:,bIndx), bFlows.du, bFlows.dv, bFlows.dw );
 
-figure; imshow( imresize( x(:,:,midSlice,fIndx), 3), [] );
+figure; imshow( imresize( squeeze(x(125,:,:,fIndx)), 3), [] );
 title([num2str(fIndx), ' - Orig'], 'FontSize', 20);
-figure; imshow( imresize( fInterpd(:,:,midSlice), 3), [] );
+figure; imshow( imresize( squeeze(fInterpd(125,:,:)), 3), [] );
 title(num2str(fIndx), 'FontSize', 20);
-figure; imshow( imresize( x(:,:,midSlice,bIndx), 3), [] );
+figure; imshow( imresize( squeeze(x(125,:,:,midData)), 3), [] );
+title('Mid Data', 'Fontsize', 20);
+figure; imshow( imresize( squeeze(x(125,:,:,bIndx)), 3), [] );
 title([num2str(bIndx), ' - Orig'], 'FontSize', 20);
-figure; imshow( imresize( bInterpd(:,:,midSlice), 3), [] );
+figure; imshow( imresize( squeeze(bInterpd(125,:,:)), 3), [] );
 title(num2str(bIndx), 'FontSize', 20);
 
 magFFlows = sqrt( fFlows.du.^2 + fFlows.dv.^2 + fFlows.dw.^2 );
@@ -112,6 +116,26 @@ title(num2str(bIndx), 'FontSize', 20);
   figure;  imshow( imresize( abs(stack(:,:,midSlice)), 3), [] );
   title('OF Stacked Image', 'FontSize', 20);
 
+  figure;  imshow( imresize( abs(squeeze(x(125,:,:,midData+1)))', 3), [] );
+  title('Single Image-Mid-1', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(x(125,:,:,midData)))', 3), [] );
+  title('Single Image-Mid', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(x(125,:,:,midData-1)))', 3), [] );
+  title('Single Image-Mid+1', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(simpleStack(125,:,:)))', 3), [] );
+  title('Simple Stack', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(stack(125,:,:)))', 3), [] );
+  title('OF Stacked Image', 'FontSize', 20);
+
+  midCol = ceil(nCols/2);
+  figure;  imshow( imresize( abs(squeeze(x(:,125,:,midData)))', 3), [] );
+  title('Single Image', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(simpleStack(:,125,:)))', 3), [] );
+  title('Simple Stack', 'FontSize', 20);
+  figure;  imshow( imresize( abs(squeeze(stack(:,125,:)))', 3), [] );
+  title('OF Stacked Image', 'FontSize', 20);
+  
+  %saveAllSlices( stack, 1 );
 
 end
 

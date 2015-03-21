@@ -1,8 +1,16 @@
 
-function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
+function [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, varargin )
+  % [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, mask )
 
-  %eta = 1d-5;  % optical flow parameter
-  eta = 1d-11;
+  p = inputParser;
+  p.addRequired('data1');
+  p.addRequired('data2');
+  p.addRequired('eta',@isnumeric);
+  p.addRequired('rho',@isnumeric);
+  p.addOptional('mask',[]);
+  p.parse(data1,data2,eta,rho,varargin{:});
+  eta = p.Results.eta;
+  rho = p.Results.rho;
 
   pyramid1 = makeDataPyramid3( data1, 3 );
   pyramid2 = makeDataPyramid3( data2, 3 );
@@ -10,7 +18,7 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
   if exist( 'mask', 'var' )
     maskPyramid = makeDataPyramid3( mask, 3 );
   end
- 
+
   sLevel1 = size( pyramid1{end} );
   du = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
   dv = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
@@ -34,17 +42,13 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
     tmp2 = pyramid2{level};
     interp2 = ofInterp3D( tmp2, du, dv, dw );
 
-%if level == 1
-%  newDu=0; newDv=0; newDw=0;
-%else
     scaledEta = eta * numel(tmp1(:));
-    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, scaledEta );
+    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, scaledEta, rho );
     if exist( 'mask', 'var' )
       newDu = newDu .* ( maskPyramid{level} > 0 );
       newDv = newDv .* ( maskPyramid{level} > 0 );
       newDw = newDw .* ( maskPyramid{level} > 0 );
     end
-%end
 
     du = du + newDu;
     dv = dv + newDv;
@@ -52,20 +56,22 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
 
     showDiagnostics = 0;
     if showDiagnostics==1
-      [~,~,nPages] = size(tmp1);  midPage=floor(nPages/2);
+      close all;
+      [nRows,nCols,nPages] = size(tmp1);
+      midRow = ceil(nRows/2);
+      midCol = ceil(nCols/2);
+      midPage = ceil(nPages/2);
       img1 = squeeze(tmp1(:,:,midPage));
       minImg1 = min(img1(:));  maxImg1 = max(img1(:));
       figure;
       imshow( imresize( img1, ceil(512/nRows), 'nearest' ), ...
         [minImg1 maxImg1] );
       title('img1', 'FontSize', 20);
-      tmp2 = pyramid2{level};
       img2 = squeeze(tmp2(:,:,midPage));
       figure;
       imshow( imresize( img2, ceil(512/nRows), 'nearest' ), ...
         [minImg1 maxImg1] );
       title('img2', 'FontSize', 20);
-      interped2 = ofInterp3D( tmp2, du, dv, dw );
       interpedImg2 = squeeze(interped2(:,:,midPage));
       figure;
       imshow( imresize( interpedImg2, ceil(512/nRows), 'nearest' ), ...
@@ -85,15 +91,16 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, mask )
       title('dw', 'FontSize', 20);
       drawnow;
     end
-
-    save( 'tmpState.mat' );
     
   end
 
 end
 
 
-function [du,dv,dw] = ofADMM3D( data1, data2, eta )
+function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
+
+  % ADMM parameters
+  nIter = 500;
 
   % data1 and data2 must be of type double
   data1 = double( data1 );
@@ -103,11 +110,6 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
   if( max(data1(:)) > 1.5 || max(data2(:)) > 1.5 )
     error('Input values should be less than ~1');
   end
-
-  % ADMM Parameters
-  %rho = 0.001;
-  rho = 5d-4;
-  nIter = 1000;
 
   [nRows, nCols, nPages] = size( data1 );
 
@@ -177,11 +179,12 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
 
   objectives = zeros(nIter,1);
   for i=1:nIter
-    if mod(i,50)==0
+    if mod(i,100)==0
       disp([ 'Working on iteration ', num2str(i), ' of ', num2str(nIter) ]);
     end
 
-    objectives(i) = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
+    thisObjective = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
+    objectives(i) = thisObjective;
 
     % Update x
     arg1 = y1 + ...
@@ -250,19 +253,17 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta )
     close all;
     admmOptVal = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
     disp(['ADMM Optimal Value: ', num2str(admmOptVal) ] );
+    figure; plot( objectives );
     ofRes = ofResidual3D( Iu, Iv, Iw, It, du, dv, dw );
-    figure, imshow( imresize( ofRes, ceil(512/nRows), 'nearest' ), [] );
-    title('OF Residual', 'FontSize', 20);
+    %figure, imshow( imresize( ofRes, ceil(512/nRows), 'nearest' ), [] );
+    %title('OF Residual', 'FontSize', 20);
     %load( 'star3D.mat' );
     %objStar = ofObjective( Iu, Iv, Iw, b, x1Star, x2Star, x3Star, ...
     %  eta, D1, D2, D3 );
     %figure, plot( ( objectives - objStar ) / objStar );
     %title('relative error vs iteration');
     drawnow;
-  end
 
-  showDiagnostics = 0;
-  if showDiagnostics==1
     disp(['Rho: ', num2str(rho)]);
     disp(['Max objective: ', num2str(max( objectives ))]);
     disp(['Min objective: ', num2str(min( objectives ))]);

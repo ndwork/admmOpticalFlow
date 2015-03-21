@@ -1,5 +1,6 @@
+*.gif
+*.jpg
 *.mat
 *.m~
-*.jpg
 .DS_store
 /masks_*
