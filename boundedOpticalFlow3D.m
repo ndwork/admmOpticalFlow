@@ -1,14 +1,19 @@
 
-function [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, varargin )
-  % [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, mask )
+function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, ...
+  bound, varargin )
+  % [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, ...
+  %   rho, bound, mask )
+  % bound is a real positive number specifying the largest possible
+  %   optical flow vector
 
   p = inputParser;
   p.addRequired('data1');
   p.addRequired('data2');
   p.addRequired('eta',@isnumeric);
   p.addRequired('rho',@isnumeric);
+  p.addRequired('bound',@isnumeric);
   p.addOptional('mask',[]);
-  p.parse(data1,data2,eta,rho,varargin{:});
+  p.parse(data1,data2,eta,rho,bound,varargin{:});
   eta = p.Results.eta;
   rho = p.Results.rho;
 
@@ -43,7 +48,8 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, varargin )
     interp2 = ofInterp3D( tmp2, du, dv, dw );
 
     scaledEta = eta * numel(tmp1(:));
-    [newDu,  newDv, newDw] = ofADMM3D( tmp1, interp2, scaledEta, rho );
+    [newDu,  newDv, newDw] = boundedOfADMM3D( tmp1, interp2, ...
+      scaledEta, rho, bound );
     if exist( 'mask', 'var' )
       newDu = newDu .* ( maskPyramid{level} > 0 );
       newDv = newDv .* ( maskPyramid{level} > 0 );
@@ -54,7 +60,7 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, varargin )
     dv = dv + newDv;
     dw = dw + newDw;
 
-    showDiagnostics = 0;
+    showDiagnostics = 1;
     if showDiagnostics==1
       close all;
       [nRows,nCols,nPages] = size(tmp1);
@@ -98,7 +104,7 @@ function [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho, varargin )
 end
 
 
-function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
+function [du,dv,dw] = boundedOfADMM3D( data1, data2, eta, rho, bound )
 
   % ADMM parameters
   nIter = 500;
@@ -120,16 +126,17 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
   applyD1Trans = @(u) cat(2,-u(:,1,:),u(:,1:end-2,:) - u(:,2:end-1,:),u(:,end-1,:));
   applyD2Trans = @(u) cat(1,-u(1,:,:),u(1:end-2,:,:) - u(2:end-1,:,:),u(end-1,:,:));
   applyD3Trans = @(u) cat(3,-u(:,:,1),u(:,:,1:end-2) - u(:,:,2:end-1),u(:,:,end-1));
-  applyM = @(u) u + applyD1Trans(applyD1(u)) + applyD2Trans(applyD2(u)) + applyD3Trans(applyD3(u));
+  applyM = @(u) u + applyD1Trans(applyD1(u)) + ...
+    applyD2Trans(applyD2(u)) + applyD3Trans(applyD3(u));
   allOnes = ones(nRows,nCols,nPages);
   eigValsM = mirt_dctn(applyM(mirt_idctn(allOnes)));
   eigValsMInv = eigValsM.^(-1);
 
   [Iu1, Iv1, Iw1] = imgDeriv3D( data1 );
   [Iu2, Iv2, Iw2] = imgDeriv3D( data2 );
-  Iu = ( Iu1 + Iu2 ) / 2;
-  Iv = ( Iv1 + Iv2 ) / 2;
-  Iw = ( Iw1 + Iw2 ) / 2;
+  Iu = 0.5 * ( Iu1 + Iu2 );
+  Iv = 0.5 * ( Iv1 + Iv2 );
+  Iw = 0.5 * ( Iw1 + Iw2 );
   It = data2 - data1;
 
 
@@ -137,6 +144,9 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
   x1 = zeros( nRows, nCols, nPages );
   x2 = zeros( nRows, nCols, nPages );
   x3 = zeros( nRows, nCols, nPages );
+  r1 = zeros( nRows, nCols, nPages );
+  r2 = zeros( nRows, nCols, nPages );
+  r3 = zeros( nRows, nCols, nPages );
   y1 = zeros( nRows, nCols, nPages );
   y2 = zeros( nRows, nCols, nPages );
   y3 = zeros( nRows, nCols, nPages );
@@ -150,18 +160,21 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
   z3_2 = zeros( nRows, nCols, nPages );
   z3_3 = zeros( nRows, nCols, nPages );
 
-  lambda1_1 = zeros( nRows, nCols, nPages );
-  lambda1_2 = zeros( nRows, nCols, nPages );
-  lambda1_3 = zeros( nRows, nCols, nPages );
-  lambda2_1 = zeros( nRows, nCols, nPages );
-  lambda2_2 = zeros( nRows, nCols, nPages );
-  lambda2_3 = zeros( nRows, nCols, nPages );
-  lambda3_1 = zeros( nRows, nCols, nPages );
-  lambda3_2 = zeros( nRows, nCols, nPages );
-  lambda3_3 = zeros( nRows, nCols, nPages );
-  lambda4_1 = zeros( nRows, nCols, nPages );
-  lambda4_2 = zeros( nRows, nCols, nPages );
-  lambda4_3 = zeros( nRows, nCols, nPages );
+  lambda1u = zeros( nRows, nCols, nPages );
+  lambda1v = zeros( nRows, nCols, nPages );
+  lambda1w = zeros( nRows, nCols, nPages );
+  lambda2u = zeros( nRows, nCols, nPages );
+  lambda2v = zeros( nRows, nCols, nPages );
+  lambda2w = zeros( nRows, nCols, nPages );
+  lambda3u_1 = zeros( nRows, nCols, nPages );
+  lambda3u_2 = zeros( nRows, nCols, nPages );
+  lambda3u_3 = zeros( nRows, nCols, nPages );
+  lambda3v_1 = zeros( nRows, nCols, nPages );
+  lambda3v_2 = zeros( nRows, nCols, nPages );
+  lambda3v_3 = zeros( nRows, nCols, nPages );
+  lambda3w_1 = zeros( nRows, nCols, nPages );
+  lambda3w_2 = zeros( nRows, nCols, nPages );
+  lambda3w_3 = zeros( nRows, nCols, nPages );
 
   b = -It;
   Iub = Iu.*b;
@@ -178,71 +191,153 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
     M31./M11.*M13 + M32.*K.*M21./M11.*M13 - M32.*K.*M23 + M33;
   C = 1. / CInv;
 
+errorThresh = 1d-7;
+  
   objectives = zeros(nIter,1);
   for i=1:nIter
-    if mod(i,100)==0
+    %if mod(i,100)==0
       disp([ 'Working on iteration ', num2str(i), ' of ', num2str(nIter) ]);
-    end
+    %end
 
     thisObjective = ofObjective( Iu, Iv, Iw, b, x1, x2, x3, eta );
     objectives(i) = thisObjective;
 
+aL0 = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+    
     % Update x
-    arg1 = y1 + ...
-      applyD1Trans(z1_1) + applyD2Trans(z1_2) + applyD3Trans(z1_3) - ...
-      lambda1_1/rho - ...
-      ( applyD1Trans(lambda2_1) + applyD2Trans(lambda2_2) + ...
-        applyD3Trans(lambda2_3) )/rho;
+    arg1 = r1 + y1 + ...
+      applyD1Trans(z1_1) + applyD2Trans(z1_2) + applyD3Trans(z1_3) ...
+      - ( lambda1u + lambda2u ) / rho ...
+      - ( applyD1Trans(lambda3u_1) + applyD2Trans(lambda3u_2) ...
+        + applyD3Trans(lambda3u_3) ) / rho;
     x1 = mirt_idctn(eigValsMInv.*mirt_dctn(arg1));
 
-    arg2 = y2 + ...
-      applyD1Trans(z2_1) + applyD2Trans(z2_2) + applyD3Trans(z2_3) - ...
-      lambda1_2/rho - ...
-      ( applyD1Trans(lambda3_1) + applyD2Trans(lambda3_2) + ...
-        applyD3Trans(lambda3_3) )/rho;    
+aL1 = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aL1-aL0 > errorThresh
+  disp('I got here');
+end
+    
+    arg2 = r2 + y2 + ...
+      applyD1Trans(z2_1) + applyD2Trans(z2_2) + applyD3Trans(z2_3) ...
+      - ( lambda1v + lambda2v ) / rho ...
+      - ( applyD1Trans(lambda3v_1) + applyD2Trans(lambda3v_2) ...
+        + applyD3Trans(lambda3v_3) ) / rho;
     x2 = mirt_idctn(eigValsMInv.*mirt_dctn(arg2));
-
-    arg3 = y3 + ...
-      applyD1Trans(z3_1) + applyD2Trans(z3_2) + applyD3Trans(z3_3) - ...
-      lambda1_3/rho - ...
-      ( applyD1Trans(lambda4_1) + applyD2Trans(lambda4_2) + ...
-        applyD3Trans(lambda4_3) )/rho;
+    
+aL2 = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aL2-aL1 > errorThresh
+  disp('I got here');
+end
+    
+    arg3 = r3 + y3 + ...
+      applyD1Trans(z3_1) + applyD2Trans(z3_2) + applyD3Trans(z3_3) ...
+      - ( lambda1w + lambda2w ) / rho ...
+      - ( applyD1Trans(lambda3w_1) + applyD2Trans(lambda3w_2) ...
+        + applyD3Trans(lambda3w_3) ) / rho;
     x3 = mirt_idctn(eigValsMInv.*mirt_dctn(arg3));
 
+aL3 = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aL3-aL2 > errorThresh
+  disp('I got here');
+end
+
+    % Update r
+    rArg1 = x1 + lambda1u / rho;
+    rArg2 = x2 + lambda1v / rho;
+    rArg3 = x3 + lambda1w / rho;
+    rMag = sqrt( rArg1.*rArg1 + rArg2.*rArg2 + rArg3.*rArg3 );
+    factor = min( bound ./ rMag, 1 );
+    r1 = rArg1 .* factor;
+    r2 = rArg2 .* factor;
+    r3 = rArg3 .* factor;
+
+aLR = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aLR-aL3 > errorThresh
+  disp('I got here');
+end
+    
     % Update y
-    nu1 = Iub + lambda1_1 + rho*x1;
-    nu2 = Ivb + lambda1_2 + rho*x2;
-    nu3 = Iwb + lambda1_3 + rho*x3;
+    nu1 = Iub + lambda2u + rho*x1;
+    nu2 = Ivb + lambda2v + rho*x2;
+    nu3 = Iwb + lambda2w + rho*x3;
     y3 = C.*( nu3 - M31./M11.*nu1 + M31./M11.*M12.*K.*nu2 - ...
       M31./M11.*M12.*K.*M21./M11.*nu1 - M32.*K.*nu2 + ...
       M32.*K.*M21./M11.*nu1 );
     y2 = K .* (nu2 - M21./M11.*nu1 + M21./M11.*M13.*y3 - M23.*y3 );
     y1 = 1./M11 .* ( nu1 - M12.*y2 - M13.*y3 );
 
+aLY = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aLY-aLR > errorThresh
+  disp('I got here');
+end
+    
     % Update z
-    z1_1 = softThresh( applyD1(x1) + lambda2_1/rho, eta/rho );
-    z1_2 = softThresh( applyD2(x1) + lambda2_2/rho, eta/rho );
-    z1_3 = softThresh( applyD3(x1) + lambda2_3/rho, eta/rho );
-    z2_1 = softThresh( applyD1(x2) + lambda3_1/rho, eta/rho );
-    z2_2 = softThresh( applyD2(x2) + lambda3_2/rho, eta/rho );
-    z2_3 = softThresh( applyD3(x2) + lambda3_3/rho, eta/rho );
-    z3_1 = softThresh( applyD1(x3) + lambda4_1/rho, eta/rho );
-    z3_2 = softThresh( applyD2(x3) + lambda4_2/rho, eta/rho );
-    z3_3 = softThresh( applyD3(x3) + lambda4_3/rho, eta/rho );
+    z1_1 = softThresh( applyD1(x1) + lambda3u_1/rho, eta/rho );
+    z1_2 = softThresh( applyD2(x1) + lambda3u_2/rho, eta/rho );
+    z1_3 = softThresh( applyD3(x1) + lambda3u_3/rho, eta/rho );
+    z2_1 = softThresh( applyD1(x2) + lambda3v_1/rho, eta/rho );
+    z2_2 = softThresh( applyD2(x2) + lambda3v_2/rho, eta/rho );
+    z2_3 = softThresh( applyD3(x2) + lambda3v_3/rho, eta/rho );
+    z3_1 = softThresh( applyD1(x3) + lambda3w_1/rho, eta/rho );
+    z3_2 = softThresh( applyD2(x3) + lambda3w_2/rho, eta/rho );
+    z3_3 = softThresh( applyD3(x3) + lambda3w_3/rho, eta/rho );
 
+aLZ = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 );
+if aLZ-aLY > errorThresh
+  disp('I got here');
+end
+    
     % Update lambdas
-    lambda1_1 = lambda1_1 + rho * ( x1 - y1 );
-    lambda1_2 = lambda1_2 + rho * ( x2 - y2 );
-    lambda1_3 = lambda1_3 + rho * ( x3 - y3 );
-    lambda2_1 = lambda2_1 + rho * ( applyD1(x1) - z1_1 );
-    lambda2_2 = lambda2_2 + rho * ( applyD2(x1) - z1_2 );
-    lambda2_3 = lambda2_3 + rho * ( applyD3(x1) - z1_3 );
-    lambda3_1 = lambda3_1 + rho * ( applyD1(x2) - z2_1 );
-    lambda3_2 = lambda3_2 + rho * ( applyD2(x2) - z2_2 );
-    lambda3_3 = lambda3_3 + rho * ( applyD3(x2) - z2_3 );
-    lambda4_1 = lambda4_1 + rho * ( applyD1(x3) - z3_1 );
-    lambda4_2 = lambda4_2 + rho * ( applyD2(x3) - z3_2 );
-    lambda4_3 = lambda4_3 + rho * ( applyD3(x3) - z3_3 );
+    lambda1u = lambda1u + rho * ( x1 - r1 );
+    lambda1v = lambda1u + rho * ( x2 - r2 );
+    lambda1w = lambda1u + rho * ( x3 - r3 );
+    lambda2u = lambda2u + rho * ( x1 - y1 );
+    lambda2v = lambda2v + rho * ( x2 - y2 );
+    lambda2w = lambda2w + rho * ( x3 - y3 );
+    lambda3u_1 = lambda3u_1 + rho * ( applyD1(x1) - z1_1 );
+    lambda3u_2 = lambda3u_2 + rho * ( applyD2(x1) - z1_2 );
+    lambda3u_3 = lambda3u_3 + rho * ( applyD3(x1) - z1_3 );
+    lambda3v_1 = lambda3v_1 + rho * ( applyD1(x2) - z2_1 );
+    lambda3v_2 = lambda3v_2 + rho * ( applyD2(x2) - z2_2 );
+    lambda3v_3 = lambda3v_3 + rho * ( applyD3(x2) - z2_3 );
+    lambda3w_1 = lambda3w_1 + rho * ( applyD1(x3) - z3_1 );
+    lambda3w_2 = lambda3w_2 + rho * ( applyD2(x3) - z3_2 );
+    lambda3w_3 = lambda3w_3 + rho * ( applyD3(x3) - z3_3 );
 
   end
 
@@ -274,10 +369,20 @@ function [du,dv,dw] = ofADMM3D( data1, data2, eta, rho )
 end
 
 
-function out = augLagrange( Iu, Iv, It, x1, x2, x3, y1, y2, y3, ...
-  z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, eta, rho, ...
-  lambda1_1, lambda1_2, lambda1_3, lambda2_1, lambda2_2, lambda2_3, ...
-  lambda3_1, lambda3_2, lambda3_3, lambda4_1, lambda4_2, lambda4_3 )
+function out = augLagrange( Iu, Iv, It, x1, x2, x3, r1, r2, r3, ...
+  y1, y2, y3, z1_1, z1_2, z1_3, z2_1, z2_2, z2_3, z3_1, z3_2, z3_3, ...
+  eta, rho, bound, ...
+  lambda1u, lambda1v, lambda1w, lambda2u, lambda2v, lambda2w, ...
+  lambda3u_1, lambda3u_2, lambda3u_3, lambda3v_1, lambda3v_2, ...
+  lambda3v_3, lambda3w_1, lambda3w_2, lambda3w_3 )
+
+  rMag = sqrt( r1.*r1 + r2.*r2 + r3.*r3 );
+  maxRMag = max( rMag(:) );
+  if maxRMag > bound
+    out = Inf;
+    return
+  end
+
 
   [nRows,nCols,nPages] = size( Iu );
 
@@ -291,31 +396,39 @@ function out = augLagrange( Iu, Iv, It, x1, x2, x3, y1, y2, y3, ...
   
   b = -It(:);
   Ay = Iu .* y1 + Iv .* y2;
-  fOfY = 0.5*norm(Ay(:) - b, 2)^2;
-
-  gOfZ = ...
+  gOfW = 0.5*norm(Ay(:) - b, 2)^2 + ...
     eta*norm(z1_1(:),1) + eta*norm(z1_2(:),1) + eta*norm(z1_3(:),1) + ...
     eta*norm(z2_1(:),1) + eta*norm(z2_2(:),1) + eta*norm(z2_3(:),1) + ...
     eta*norm(z3_1(:),1) + eta*norm(z3_2(:),1) + eta*norm(z3_3(:),1);
 
-  tmpLam1_1 = lambda1_1 .* (x1-y1);
-  tmpLam1_2 = lambda1_2 .* (x2-y2);
-  tmpLam1_3 = lambda1_3 .* (x3-y3);
-  costLam1 = sum(tmpLam1_1(:)) + sum(tmpLam1_2(:)) + sum(tmpLam1_3(:));
+  tmpLam1u = lambda1u .* (x1 - r1);
+  tmpLam1v = lambda1v .* (x2 - r2);
+  tmpLam1w = lambda1w .* (x3 - r3);
+  costLam1 = sum( tmpLam1u(:)) + sum(tmpLam1v(:)) + sum(tmpLam1w(:) );
 
-  tmpLam2 = lambda2_1 .* ( D1x2 - z1_1 ) + ...
-    lambda2_2 .* ( D2x1 - z1_2 ) + ...
-    lambda2_3 .* ( D3x1 - z1_3 );
-  costLam2 = sum( tmpLam2(:) );
-  tmpLam3 = lambda3_1 .* ( D1x2 - z2_1 ) + ...
-    lambda3_2 .* ( D2x2 - z2_2 ) + ...
-    lambda3_3 .* ( D3x2 - z2_3 );
-  costLam3 = sum( tmpLam3(:) );
-  tmpLam4 = lambda4_1 .* ( D1x3 - z3_1 ) + ...
-    lambda4_2 .* ( D2x3 - z3_2 ) + ...
-    lambda4_3 .* ( D3x3 - z3_3 );
-  costLam4 = sum( tmpLam4(:) );
+  tmpLam2u = lambda2u .* (x1 - y1);
+  tmpLam2v = lambda2v .* (x2 - y2);
+  tmpLam2w = lambda2w .* (x3 - y3);
+  costLam2 = sum( tmpLam2u(:) + tmpLam2v(:) + tmpLam2w(:) );
 
+  tmpLam3u = lambda3u_1 .* ( D1x1 - z1_1 ) + ...
+    lambda3u_2 .* ( D2x1 - z1_2 ) + ...
+    lambda3u_3 .* ( D3x1 - z1_3 );
+  costLam3u = sum( tmpLam3u(:) );
+
+  tmpLam3v = lambda3v_1 .* ( D1x2 - z2_1 ) + ...
+    lambda3v_2 .* ( D2x2 - z2_2 ) + ...
+    lambda3v_3 .* ( D3x2 - z2_3 );
+  costLam3v = sum( tmpLam3v(:) );
+
+  tmpLam3w = lambda3w_1 .* ( D1x3 - z3_1 ) + ...
+    lambda3w_2 .* ( D2x3 - z3_2 ) + ...
+    lambda3w_3 .* ( D3x3 - z3_3 );
+  costLam3w = sum( tmpLam3w(:) );
+
+  augXR1 = norm( x1(:) - r1(:), 2 )^2;
+  augXR2 = norm( x2(:) - r2(:), 2 )^2;
+  augXR3 = norm( x3(:) - r3(:), 2 )^2;
   augXY1 = norm( x1(:) - y1(:), 2 )^2;
   augXY2 = norm( x2(:) - y2(:), 2 )^2;
   augXY3 = norm( x3(:) - y3(:), 2 )^2;
@@ -328,11 +441,11 @@ function out = augLagrange( Iu, Iv, It, x1, x2, x3, y1, y2, y3, ...
   augXZ3_1 = norm( D1x3(:) - z3_1(:), 2 )^2;
   augXZ3_2 = norm( D2x3(:) - z3_2(:), 2 )^2;
   augXZ3_3 = norm( D3x3(:) - z3_3(:), 2 )^2;
-  
-  out = fOfY + gOfZ + costLam1 + costLam2 + costLam3 + costLam4 + ...
-    rho/2 * ( augXY1 + augXY2 + augXY3 + ...
-      augXZ1_1 + augXZ1_2 + augXZ1_3 + ...
-      augXZ2_1 + augXZ2_2 + augXZ2_3 + ...
+
+  out = gOfW + costLam1 + costLam2 + ...
+    costLam3u + costLam3v + costLam3w + ...
+    rho/2 * ( augXR1 + augXR2 + augXR3 + augXY1 + augXY2 + augXY3 + ...
+      augXZ1_1 + augXZ1_2 + augXZ1_3 + augXZ2_1 + augXZ2_2 + augXZ2_3 + ...
       augXZ3_1 + augXZ3_2 + augXZ3_3 );
 
   disp(['Aug Lag: ', num2str(out)]);

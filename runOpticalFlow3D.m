@@ -9,6 +9,8 @@ function runOpticalFlow3D
 %data1Indx = 4;
 %data2Indx = 10;
 
+  bound = 1.5;
+
   data1 = squeeze(x(:,:,:,data1Indx));
   data2 = squeeze(x(:,:,:,data2Indx));
 
@@ -27,7 +29,11 @@ function runOpticalFlow3D
     scales = data1(maskedIndxs) ./ data2(maskedIndxs);
     data2 = data2 .* median( scales(:) );
     tic;
-    [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho );
+    if exist( 'bound', 'var' )
+      [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, bound );
+    else
+      [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho );
+    end
     timeTaken = toc;
   end
   %profile off
