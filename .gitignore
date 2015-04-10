@@ -2,5 +2,6 @@
 *.jpg
 *.mat
 *.m~
+*.pdf
 .DS_store
 /masks_*
