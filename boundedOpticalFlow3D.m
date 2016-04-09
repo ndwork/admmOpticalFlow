@@ -191,8 +191,6 @@ function [du,dv,dw] = boundedOfADMM3D( data1, data2, eta, rho, bound )
     M31./M11.*M13 + M32.*K.*M21./M11.*M13 - M32.*K.*M23 + M33;
   C = 1. / CInv;
 
-errorThresh = 1d-7;
-  
   objectives = zeros(nIter,1);
   for i=1:nIter
     if mod(i,100)==0

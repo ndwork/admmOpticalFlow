@@ -6,6 +6,7 @@ function stackCardiacImages
   datacase = 10;
   nStack = 3;
   maxNData = 7;
+  bound = 1.2;
 
   [x,eta,rho] = loadData( datacase );
   [nRows,nCols,nSlices,nData] = size(x);
@@ -39,7 +40,8 @@ function stackCardiacImages
       maskedIndxs = find( data2~=0 );
       scales = data1(maskedIndxs) ./ data2(maskedIndxs);
       data2 = data2 .* median( scales );
-      [du,dv,dw] = opticalFlow3D( data1, data2, eta, rho );
+      %[du,dv,dw] = opticalFlow3D( data1, data2, eta, rho );
+      [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, bound );
     end
     flows{i}.du = du;
     flows{i}.dv = dv;

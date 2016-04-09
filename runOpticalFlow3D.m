@@ -9,14 +9,14 @@ function runOpticalFlow3D
 %data1Indx = 4;
 %data2Indx = 10;
 
-  bound = 1.5;
+  bound = 1.2;
 
   data1 = squeeze(x(:,:,:,data1Indx));
   data2 = squeeze(x(:,:,:,data2Indx));
 
   %mask = loadMask( [nRows,nCols,nSlices], datacase );
 
-  %profile on
+  profile on
   if exist('mask','var') > 0
     maskedIndxs = find( mask>0 );
     scales = data1(maskedIndxs) ./ data2(maskedIndxs);
@@ -36,8 +36,8 @@ function runOpticalFlow3D
     end
     timeTaken = toc;
   end
-  %profile off
-  %profile viewer
+  profile off
+  profile viewer
 
   [nRows,nCols,nSlices] = size(data1);
   midRow = ceil(nRows/2);
