@@ -25,6 +25,7 @@ function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, varargin )
   p.addParamValue( 'eta', defaultEta, @isnumeric );
   p.addParamValue( 'rho', defaultRho, @isnumeric );
   p.parse( data1, data2, varargin{:} );
+  bound = p.Results.bound;
   eta = p.Results.eta;
   rho = p.Results.rho;
 
@@ -61,7 +62,7 @@ function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, varargin )
     dv = dv + newDv;
     dw = dw + newDw;
 
-    showDiagnostics = 0;
+    showDiagnostics = 1;
     if showDiagnostics==1
       close all;
       [nRows,nCols,nPages] = size(tmp1);
