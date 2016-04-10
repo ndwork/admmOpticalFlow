@@ -1,28 +1,35 @@
 
-function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, ...
-  bound, varargin )
-  % [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, ...
-  %   rho, bound, mask )
+function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, varargin )
+  % [du,dv,dw] = boundedOpticalFlow3D( data1, data2, [, 'bound', bound, ...
+  %   'eta', eta, 'rho', rho ] )
+  %
+  % Computes optical flow vectors
+  %
+  % Inputs:
+  % data1/data2 - 3D arrays; optical flow vectors will point from voxels
+  %   in data1 to voxels in data2
+  %
+  % Optional Inputs:
   % bound is a real positive number specifying the largest possible
   %   optical flow vector
+  %
+  % Written by Nicholas Dwork - Copyright 2015
 
+  defaultBound = 1.2;
+  defaultEta =  8d-10;
+  defaultRho = 1d-3;
   p = inputParser;
-  p.addRequired('data1');
-  p.addRequired('data2');
-  p.addRequired('eta',@isnumeric);
-  p.addRequired('rho',@isnumeric);
-  p.addRequired('bound',@isnumeric);
-  p.addOptional('mask',[]);
-  p.parse(data1,data2,eta,rho,bound,varargin{:});
+  p.addRequired( 'data1' );
+  p.addRequired( 'data2' );
+  p.addParamValue( 'bound', defaultBound, @isnumeric );
+  p.addParamValue( 'eta', defaultEta, @isnumeric );
+  p.addParamValue( 'rho', defaultRho, @isnumeric );
+  p.parse( data1, data2, varargin{:} );
   eta = p.Results.eta;
   rho = p.Results.rho;
 
   pyramid1 = makeDataPyramid3( data1, 3 );
   pyramid2 = makeDataPyramid3( data2, 3 );
-
-  if exist( 'mask', 'var' )
-    maskPyramid = makeDataPyramid3( mask, 3 );
-  end
 
   sLevel1 = size( pyramid1{end} );
   du = zeros( sLevel1(1), sLevel1(2), sLevel1(3) );
@@ -34,7 +41,6 @@ function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, ...
     tmp1 = pyramid1{level};
     [nRows, nCols, nPages] = size( pyramid1{level} );
 
-    % Apply a median filter
     du = medfilt3( du, [5 5 5], 'symmetric' );
     dv = medfilt3( dv, [5 5 5], 'symmetric' );
     dw = medfilt3( dw, [5 5 5], 'symmetric' );
@@ -50,11 +56,6 @@ function [du,dv,dw] = boundedOpticalFlow3D( data1, data2, eta, rho, ...
     scaledEta = eta * numel(tmp1(:));
     [newDu,  newDv, newDw] = boundedOfADMM3D( tmp1, interp2, ...
       scaledEta, rho, bound );
-    if exist( 'mask', 'var' )
-      newDu = newDu .* ( maskPyramid{level} > 0 );
-      newDv = newDv .* ( maskPyramid{level} > 0 );
-      newDw = newDw .* ( maskPyramid{level} > 0 );
-    end
 
     du = du + newDu;
     dv = dv + newDv;
